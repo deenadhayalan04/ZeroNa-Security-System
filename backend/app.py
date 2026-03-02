@@ -45,6 +45,10 @@ class RansomwareHandler(FileSystemEventHandler):
         alerts.append({"time": time.strftime("%H:%M:%S"), "msg": message, "status": status})
 
 # 4. API ROUTES
+@app.route("/", methods=["GET"])
+def home():
+    return "ZeroNa backend is running"
+
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
     return jsonify(alerts)
