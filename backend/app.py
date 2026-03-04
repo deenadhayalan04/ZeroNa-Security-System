@@ -59,6 +59,11 @@ def kill_threat():
     alerts.append({"time": time.strftime("%H:%M:%S"), "msg": "ZeroNa: Threat Terminated", "status": "Safe"})
     return jsonify({"status": "success"})
 
+@app.route('/api/clear', methods=['POST'])
+def clear_alerts():
+    alerts.clear()
+    return jsonify({"status": "cleared"})
+
 # 5. ANTIGRAVITY STARTUP LOGIC
 if __name__ == "__main__":
     watch_path = "./test_folder"
