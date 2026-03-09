@@ -3,3 +3,4 @@ flask-cors
 watchdog
 psutil
 gunicorn
+python-dotenv
