@@ -147,7 +147,7 @@ export function LoginPage() {
               <p className="mt-1 text-xs text-muted-foreground">Authorized users only</p>
             </div>
             <Badge variant="outline" className="text-[10px]">
-              Demo Gate
+              DB
             </Badge>
           </div>
 
