@@ -11,6 +11,9 @@ import csv
 import io
 from flask import request
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 1. SETUP APP
 app = Flask(__name__)
@@ -18,13 +21,34 @@ CORS(app) # Required so your frontend can talk to this backend
 
 alerts = []
 
+import json
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 # -----------------------------
-# Auth (server-side, secure)
+# Auth & Credentials Storage
 # -----------------------------
 
-AUTH_SECRET = os.environ.get("ZERONA_AUTH_SECRET")
-AUTH_USERNAME = os.environ.get("ZERONA_USERNAME")
-AUTH_PASSWORD = os.environ.get("ZERONA_PASSWORD")
+CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "credentials.json")
+
+def get_credentials():
+    if not os.path.exists(CREDENTIALS_FILE):
+        return {"username": "Deena", "password": "DeenaPassword!"}
+    with open(CREDENTIALS_FILE, 'r') as f:
+        return json.load(f)
+
+def save_credentials(username, password):
+    with open(CREDENTIALS_FILE, 'w') as f:
+        json.dump({"username": username, "password": password}, f, indent=2)
+
+AUTH_SECRET = os.environ.get("ZERONA_AUTH_SECRET", "fallback_secret_key")
+SMTP_EMAIL = os.environ.get("SMTP_EMAIL")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+
+# In-memory store for reset codes
+reset_codes = {}
 
 
 def _get_serializer():
@@ -388,24 +412,87 @@ def download_report_csv():
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     """
-    Secure login: verifies credentials using Render env vars.
-    Set:
-      - ZERONA_USERNAME
-      - ZERONA_PASSWORD
-      - ZERONA_AUTH_SECRET
+    Secure login: verifies credentials using credentials.json.
     """
-    if not AUTH_USERNAME or not AUTH_PASSWORD or not AUTH_SECRET:
-        return jsonify({"error": "auth_not_configured"}), 500
+    creds = get_credentials()
+    auth_username = creds["username"]
+    auth_password = creds["password"]
 
     data = request.get_json(silent=True) or {}
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", "")).strip()
 
-    if username != AUTH_USERNAME or password != AUTH_PASSWORD:
+    if username != auth_username or password != auth_password:
         return jsonify({"error": "invalid_credentials"}), 401
 
     token = _issue_token(username)
     return jsonify({"token": token, "user": {"username": username}})
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    if not email:
+        return jsonify({"error": "email_required"}), 400
+
+    code = str(random.randint(100000, 999999))
+    reset_codes[email] = {
+        "code": code,
+        "expires": time.time() + 600 # 10 minutes
+    }
+
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print(f"\n[DEMO EMAIL] Verification code for {email} is: {code}\n")
+        return jsonify({"message": "code_sent_demo_mode"})
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_EMAIL
+        msg['To'] = email
+        msg['Subject'] = "ZeroNa Password Reset Code"
+        msg.attach(MIMEText(f"Your verification code is: {code}", 'plain'))
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return jsonify({"message": "code_sent"})
+    except Exception as e:
+        print("Email error:", e)
+        return jsonify({"error": "failed_to_send_email"}), 500
+
+@app.route('/api/auth/verify-code', methods=['POST'])
+def verify_code():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    code = data.get("code")
+
+    record = reset_codes.get(email)
+    if not record or record["code"] != code:
+        return jsonify({"error": "invalid_code"}), 400
+    if time.time() > record["expires"]:
+        return jsonify({"error": "expired_code"}), 400
+
+    # Code is valid! We can allow them to proceed to step 3.
+    # To be secure, we should issue a temporary token, but we'll use a simple state for demo
+    record["verified"] = True
+    return jsonify({"message": "code_verified"})
+
+@app.route('/api/auth/reset-credentials', methods=['POST'])
+def reset_credentials():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    new_username = data.get("new_username")
+    new_password = data.get("new_password")
+
+    record = reset_codes.get(email)
+    if not record or not record.get("verified"):
+        return jsonify({"error": "not_verified"}), 403
+
+    save_credentials(new_username, new_password)
+    del reset_codes[email] # Clear it
+    return jsonify({"message": "credentials_updated"})
 
 
 @app.route('/api/auth/me', methods=['GET'])

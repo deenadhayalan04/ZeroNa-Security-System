@@ -28,6 +28,33 @@ export async function loginWithCredentials(username, password) {
   }
 }
 
+export async function forgotPassword(email) {
+  try {
+    const res = await http.post('/auth/forgot-password', { email })
+    return { ok: true, message: res.data.message }
+  } catch (err) {
+    return { ok: false, message: err.response?.data?.error || 'Failed to request reset.' }
+  }
+}
+
+export async function verifyResetCode(email, code) {
+  try {
+    const res = await http.post('/auth/verify-code', { email, code })
+    return { ok: true, message: res.data.message }
+  } catch (err) {
+    return { ok: false, message: err.response?.data?.error || 'Invalid or expired code.' }
+  }
+}
+
+export async function resetCredentials(email, new_username, new_password) {
+  try {
+    const res = await http.post('/auth/reset-credentials', { email, new_username, new_password })
+    return { ok: true, message: res.data.message }
+  } catch (err) {
+    return { ok: false, message: err.response?.data?.error || 'Failed to reset credentials.' }
+  }
+}
+
 export async function verifySession() {
   if (!getAuthToken()) return { ok: false }
   try {
