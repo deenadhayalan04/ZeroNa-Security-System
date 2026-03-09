@@ -6,12 +6,146 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from flask import Response
+import csv
+import io
+from flask import request
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 # 1. SETUP APP
 app = Flask(__name__)
 CORS(app) # Required so your frontend can talk to this backend
 
 alerts = []
+
+# -----------------------------
+# Auth (server-side, secure)
+# -----------------------------
+
+AUTH_SECRET = os.environ.get("ZERONA_AUTH_SECRET")
+AUTH_USERNAME = os.environ.get("ZERONA_USERNAME")
+AUTH_PASSWORD = os.environ.get("ZERONA_PASSWORD")
+
+
+def _get_serializer():
+    if not AUTH_SECRET:
+        return None
+    return URLSafeTimedSerializer(AUTH_SECRET, salt="zerona-auth-v1")
+
+
+def _issue_token(username: str) -> str:
+    s = _get_serializer()
+    if not s:
+        raise RuntimeError("ZERONA_AUTH_SECRET is not configured")
+    return s.dumps({"u": username})
+
+
+def _verify_token(token: str, max_age_seconds: int = 60 * 60 * 24) -> dict:
+    s = _get_serializer()
+    if not s:
+        raise RuntimeError("ZERONA_AUTH_SECRET is not configured")
+    return s.loads(token, max_age=max_age_seconds)
+
+
+def _require_auth():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth.replace("Bearer ", "", 1).strip()
+    if not token:
+        return None
+    try:
+        payload = _verify_token(token)
+        return payload
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+# Simulation state for safe ransomware demo
+simulation_state = {
+    "status": "idle",  # idle, monitoring, under_attack, quarantined, recovered
+    "step": 0,
+    "systems": [],
+    "folders": [],
+    "events": [],
+}
+
+
+def _add_simulation_event(message, level="info"):
+    simulation_state["events"].append(
+        {
+            "time": time.strftime("%H:%M:%S"),
+            "message": message,
+            "level": level,  # info, warning, danger, success
+        }
+    )
+
+
+def _init_simulation():
+    simulation_state["status"] = "monitoring"
+    simulation_state["step"] = 0
+    simulation_state["systems"] = [
+        {"id": "file-server", "name": "File Server", "status": "healthy"},
+        {"id": "db-cluster", "name": "Database Cluster", "status": "healthy"},
+        {"id": "endpoint-fleet", "name": "Endpoints", "status": "healthy"},
+    ]
+    simulation_state["folders"] = [
+        {"id": "finance", "name": "\\\\FileShare\\Finance", "criticality": "High", "encrypted_percent": 0, "quarantined": False},
+        {"id": "hr", "name": "\\\\FileShare\\HR", "criticality": "Medium", "encrypted_percent": 0, "quarantined": False},
+        {"id": "backups", "name": "\\\\DB\\Backups", "criticality": "High", "encrypted_percent": 0, "quarantined": False},
+        {"id": "shared", "name": "\\\\FileShare\\Shared", "criticality": "Low", "encrypted_percent": 0, "quarantined": False},
+    ]
+    simulation_state["events"] = []
+    _add_simulation_event("Monitoring baseline activity across core systems.", "info")
+
+
+def _advance_simulation_step():
+    step = simulation_state.get("step", 0)
+
+    # Step 0 -> suspicious activity detected
+    if step == 0:
+        simulation_state["status"] = "under_attack"
+        for f in simulation_state["folders"]:
+            if f["id"] in ("finance", "hr"):
+                f["encrypted_percent"] = 15
+        _add_simulation_event("Unusual file activity detected on Finance and HR shares.", "warning")
+        simulation_state["step"] = 1
+
+    # Step 1 -> confirmed ransomware, spread increases
+    elif step == 1:
+        for f in simulation_state["folders"]:
+            if f["id"] in ("finance", "hr"):
+                f["encrypted_percent"] = 55
+            if f["id"] == "shared":
+                f["encrypted_percent"] = 25
+        _add_simulation_event("Entropy spike and extension changes confirm ransomware behaviour.", "danger")
+        simulation_state["step"] = 2
+
+    # Step 2 -> ZeroNa quarantine + safety vault copy
+    elif step == 2:
+        simulation_state["status"] = "quarantined"
+        for f in simulation_state["folders"]:
+            if f["criticality"] == "High":
+                f["quarantined"] = True
+        for s in simulation_state["systems"]:
+            if s["id"] in ("file-server", "db-cluster"):
+                s["status"] = "quarantined"
+        _add_simulation_event("ZeroNa quarantines high-impact data and copies clean versions to Safety Vault.", "success")
+        simulation_state["step"] = 3
+
+    # Step 3 -> recovery from clean backups
+    elif step == 3:
+        simulation_state["status"] = "recovered"
+        for f in simulation_state["folders"]:
+            f["encrypted_percent"] = 0
+            f["quarantined"] = False
+        for s in simulation_state["systems"]:
+            s["status"] = "recovered"
+        _add_simulation_event("Systems restored from immutable backups. Ransomware eradicated.", "success")
+        simulation_state["step"] = 4
+
+    # Step 4 -> no further changes; keep recovered state
+    return simulation_state
 
 # 2. AI ENTROPY LOGIC (The "Smart" part of your project)
 def calculate_entropy(file_path):
@@ -30,6 +164,108 @@ def calculate_entropy(file_path):
     except Exception:
         return 0
 
+# -----------------------------
+# Readiness assessment (demo)
+# -----------------------------
+
+ASSESSMENT_DOMAINS = [
+    {
+        "id": "backup",
+        "name": "Backup & Recovery",
+        "controls": [
+            {"id": "BK-01", "question": "Maintain at least 3 copies of critical data (3-2-1 rule)", "weight": 15, "status": "pass", "recommendation": ""},
+            {"id": "BK-02", "question": "Immutable/offline backup copy exists (cannot be modified by ransomware)", "weight": 15, "status": "pass", "recommendation": ""},
+            {"id": "BK-03", "question": "Backups encrypted at rest and in transit", "weight": 13, "status": "fail", "recommendation": "Enable AES-256 at rest and TLS in transit for all repositories."},
+            {"id": "BK-04", "question": "Restoration tests performed quarterly", "weight": 10, "status": "partial", "recommendation": "Schedule quarterly restore drills; record RTO/RPO results."},
+        ],
+    },
+    {
+        "id": "endpoint",
+        "name": "Endpoint Protection",
+        "controls": [
+            {"id": "EP-01", "question": "EDR deployed on all endpoints and servers", "weight": 15, "status": "partial", "recommendation": "Close coverage gaps for all servers and remote devices."},
+            {"id": "EP-02", "question": "Application allowlisting for critical servers", "weight": 12, "status": "fail", "recommendation": "Implement allowlisting to block unknown executables and scripts."},
+            {"id": "EP-03", "question": "Removable media controls enforced", "weight": 8, "status": "pass", "recommendation": ""},
+        ],
+    },
+    {
+        "id": "network",
+        "name": "Network Segmentation",
+        "controls": [
+            {"id": "NS-01", "question": "Network segmented into functional zones (VLANs)", "weight": 15, "status": "pass", "recommendation": ""},
+            {"id": "NS-02", "question": "East-west traffic monitoring for lateral movement", "weight": 12, "status": "partial", "recommendation": "Expand monitoring to inter-VLAN traffic and critical server subnets."},
+            {"id": "NS-03", "question": "Privileged systems isolated (admin network / PAWs)", "weight": 10, "status": "fail", "recommendation": "Isolate admin access and require privileged access workstations."},
+        ],
+    },
+    {
+        "id": "email",
+        "name": "Email Security",
+        "controls": [
+            {"id": "EM-01", "question": "SPF/DKIM/DMARC configured and enforced", "weight": 10, "status": "partial", "recommendation": "Enforce DMARC quarantine/reject and monitor alignment."},
+            {"id": "EM-02", "question": "Attachment sandboxing / detonation enabled", "weight": 12, "status": "fail", "recommendation": "Enable sandboxing for attachments and suspicious URLs."},
+        ],
+    },
+    {
+        "id": "training",
+        "name": "Employee Training",
+        "controls": [
+            {"id": "ET-01", "question": "Security awareness training completion > 95%", "weight": 12, "status": "partial", "recommendation": "Set deadlines and automate reminders until completion."},
+            {"id": "ET-02", "question": "Monthly phishing simulations and reporting", "weight": 15, "status": "fail", "recommendation": "Run monthly simulations; track click rate and report trends."},
+        ],
+    },
+    {
+        "id": "patching",
+        "name": "Patch Management",
+        "controls": [
+            {"id": "PM-01", "question": "Critical patches deployed within 48 hours", "weight": 15, "status": "fail", "recommendation": "Automate critical patch workflows and enforce SLA tracking."},
+            {"id": "PM-02", "question": "Weekly vulnerability scanning", "weight": 12, "status": "pass", "recommendation": ""},
+        ],
+    },
+    {
+        "id": "access",
+        "name": "Access Control",
+        "controls": [
+            {"id": "AC-01", "question": "MFA enforced for all users and privileged accounts", "weight": 15, "status": "partial", "recommendation": "Enable MFA for service/legacy accounts; remove exemptions."},
+            {"id": "AC-02", "question": "Least privilege access reviews quarterly", "weight": 12, "status": "pass", "recommendation": ""},
+        ],
+    },
+    {
+        "id": "ir",
+        "name": "Incident Response",
+        "controls": [
+            {"id": "IR-01", "question": "Ransomware-specific IR playbook documented", "weight": 15, "status": "pass", "recommendation": ""},
+            {"id": "IR-02", "question": "Tabletop exercises conducted twice per year", "weight": 12, "status": "pass", "recommendation": ""},
+            {"id": "IR-03", "question": "External IR retainer active and tested", "weight": 8, "status": "partial", "recommendation": "Renew retainer and test escalation + comms flows."},
+        ],
+    },
+]
+
+
+def _score_controls(controls):
+    total = sum(c["weight"] for c in controls)
+    earned = 0
+    for c in controls:
+        if c["status"] == "pass":
+            earned += c["weight"]
+        elif c["status"] == "partial":
+            earned += c["weight"] * 0.5
+    return int(round((earned / total) * 100)) if total else 0
+
+
+def _assessment_snapshot():
+    domains_out = []
+    for d in ASSESSMENT_DOMAINS:
+        score = _score_controls(d["controls"])
+        domains_out.append(
+            {
+                "id": d["id"],
+                "name": d["name"],
+                "score": score,
+                "controls": d["controls"],
+            }
+        )
+    overall = int(round(sum(d["score"] for d in domains_out) / len(domains_out))) if domains_out else 0
+    return {"overall_score": overall, "domains": domains_out, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 # 3. FILE MONITORING
 class RansomwareHandler(FileSystemEventHandler):
     def on_modified(self, event):
@@ -63,6 +299,121 @@ def kill_threat():
 def clear_alerts():
     alerts.clear()
     return jsonify({"status": "cleared"})
+
+
+@app.route('/api/simulation/start', methods=['POST'])
+def simulation_start():
+    """Initialize a safe ransomware simulation scenario."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    _init_simulation()
+    return jsonify(simulation_state)
+
+
+@app.route('/api/simulation/step', methods=['POST'])
+def simulation_step():
+    """Advance the simulation by one logical step."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    if simulation_state["status"] == "idle":
+        _init_simulation()
+    state = _advance_simulation_step()
+    return jsonify(state)
+
+
+@app.route('/api/simulation/state', methods=['GET'])
+def simulation_state_route():
+    """Return current simulation state."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(simulation_state)
+
+
+@app.route('/api/simulation/reset', methods=['POST'])
+def simulation_reset():
+    """Reset simulation back to idle."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    simulation_state["status"] = "idle"
+    simulation_state["step"] = 0
+    simulation_state["systems"] = []
+    simulation_state["folders"] = []
+    simulation_state["events"] = []
+    return jsonify(simulation_state)
+
+
+@app.route('/api/assessment', methods=['GET'])
+def get_assessment():
+    """Return readiness assessment snapshot (demo)."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_assessment_snapshot())
+
+
+@app.route('/api/report.csv', methods=['GET'])
+def download_report_csv():
+    """Download assessment report as CSV (demo)."""
+    if not _require_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    snapshot = _assessment_snapshot()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["generated_at", snapshot["generated_at"]])
+    writer.writerow(["overall_score", snapshot["overall_score"]])
+    writer.writerow([])
+    writer.writerow(["domain", "domain_score", "control_id", "status", "weight", "question", "recommendation"])
+
+    for d in snapshot["domains"]:
+        for c in d["controls"]:
+            writer.writerow(
+                [
+                    d["name"],
+                    d["score"],
+                    c["id"],
+                    c["status"],
+                    c["weight"],
+                    c["question"],
+                    c.get("recommendation", ""),
+                ]
+            )
+
+    csv_bytes = output.getvalue().encode("utf-8")
+    return Response(
+        csv_bytes,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=zerona_readiness_report.csv"},
+    )
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """
+    Secure login: verifies credentials using Render env vars.
+    Set:
+      - ZERONA_USERNAME
+      - ZERONA_PASSWORD
+      - ZERONA_AUTH_SECRET
+    """
+    if not AUTH_USERNAME or not AUTH_PASSWORD or not AUTH_SECRET:
+        return jsonify({"error": "auth_not_configured"}), 500
+
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", "")).strip()
+
+    if username != AUTH_USERNAME or password != AUTH_PASSWORD:
+        return jsonify({"error": "invalid_credentials"}), 401
+
+    token = _issue_token(username)
+    return jsonify({"token": token, "user": {"username": username}})
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def auth_me():
+    payload = _require_auth()
+    if not payload:
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"user": {"username": payload.get("u", "")}})
 
 # 5. ANTIGRAVITY STARTUP LOGIC
 if __name__ == "__main__":

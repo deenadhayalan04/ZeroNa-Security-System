@@ -1,24 +1,52 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-
-const data = [
-  { domain: 'Backup', score: 82 },
-  { domain: 'Endpoint', score: 71 },
-  { domain: 'Email', score: 58 },
-  { domain: 'Network', score: 64 },
-  { domain: 'IR', score: 45 },
-  { domain: 'Training', score: 72 },
-  { domain: 'Patching', score: 79 },
-  { domain: 'Access', score: 67 },
-]
+import { useEffect, useMemo, useState } from 'react'
+import { downloadReportCsv, getAssessment } from '../api/assessment'
+import { Download } from 'lucide-react'
 
 export function ReportsPage() {
+  const [assessment, setAssessment] = useState(null)
+
+  useEffect(() => {
+    getAssessment()
+      .then(setAssessment)
+      .catch(() => setAssessment(null))
+  }, [])
+
+  const data = useMemo(() => {
+    if (!assessment?.domains) return []
+    return assessment.domains.map((d) => ({ domain: d.name, score: d.score }))
+  }, [assessment])
+
   return (
     <div className="flex flex-col gap-5">
       <div className="glass rounded-2xl px-5 py-5">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">Reports</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Export-ready summary of assessment performance</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">Reports</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Executive-ready reporting for ransomware readiness
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              const blob = await downloadReportCsv()
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = 'zerona_readiness_report.csv'
+              document.body.appendChild(a)
+              a.click()
+              a.remove()
+              URL.revokeObjectURL(url)
+            }}
+            className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            <Download className="h-4 w-4" />
+            Download CSV
+          </button>
+        </div>
       </div>
 
       <Card>
@@ -26,10 +54,12 @@ export function ReportsPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle>Domain Score Distribution</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">Snapshot of current readiness per domain</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {assessment?.generated_at ? `Generated at ${assessment.generated_at}` : 'Snapshot of readiness per domain'}
+              </p>
             </div>
             <Badge variant="outline" className="text-[10px]">
-              Sample report
+              Overall: {assessment?.overall_score ?? '--'}%
             </Badge>
           </div>
         </CardHeader>
@@ -54,7 +84,7 @@ export function ReportsPage() {
             </ResponsiveContainer>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            Tip: connect your backend to replace these sample values with live assessment data.
+            This report is generated from the backend readiness controls (prevention + detection + usability + reporting).
           </p>
         </CardContent>
       </Card>

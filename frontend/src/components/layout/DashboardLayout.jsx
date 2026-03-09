@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   ClipboardList,
@@ -6,19 +6,24 @@ import {
   ShieldAlert,
   Settings,
   HelpCircle,
+  Activity,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Badge } from '../ui/Badge'
+import { logout } from '../../auth/auth'
 
 const nav = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, section: 'Assessment' },
   { to: '/assessment', label: 'Assessment', icon: ClipboardList, section: 'Assessment' },
   { to: '/reports', label: 'Reports', icon: BarChart3, section: 'Assessment' },
   { to: '/risks', label: 'Risks', icon: ShieldAlert, section: 'Assessment' },
+  { to: '/simulation', label: 'Live Simulation', icon: Activity, section: 'Assessment' },
 ]
 
 export function DashboardLayout() {
   const location = useLocation()
+  const navigate = useNavigate()
   const current = nav.find((n) => n.to === location.pathname)?.label ?? 'Overview'
 
   return (
@@ -27,9 +32,11 @@ export function DashboardLayout() {
         <aside className="hidden w-64 shrink-0 lg:block">
           <div className="glass sticky top-5 rounded-2xl p-4">
             <div className="flex items-center gap-3 px-2 pb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 border border-primary/25">
-                <span className="text-sm font-bold tracking-tight text-primary">Z</span>
-              </div>
+              <img
+                src="/zerona-icon.svg"
+                alt="ZeroNa Protection"
+                className="h-10 w-10 rounded-2xl border border-white/10 bg-white/5 p-2"
+              />
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-tight">ZeroNa</p>
                 <p className="text-[11px] text-muted-foreground">PROTECTION</p>
@@ -123,7 +130,16 @@ export function DashboardLayout() {
                 <p className="text-xs text-muted-foreground">
                   Last assessed: <span className="text-foreground font-semibold">Mar 02, 2026</span>
                 </p>
-                <div className="h-9 w-9 rounded-full border border-border/70 bg-secondary/30" />
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-secondary/30 px-3 text-xs text-foreground hover:bg-secondary/40"
+                  onClick={() => {
+                    logout()
+                    navigate('/login', { replace: true })
+                  }}
+                >
+                  <LogOut className="h-4 w-4 text-muted-foreground" />
+                  Logout
+                </button>
               </div>
             </div>
             <div className="mt-2">
