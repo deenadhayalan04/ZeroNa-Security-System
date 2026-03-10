@@ -441,26 +441,36 @@ def forgot_password():
         "expires": time.time() + 600 # 10 minutes
     }
 
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print(f"\n[DEMO EMAIL] Verification code for {email} is: {code}\n")
-        return jsonify({"message": "code_sent_demo_mode"})
+    if not SMTP_EMAIL or not SMTP_PASSWORD or SMTP_EMAIL == "your-email@gmail.com":
+        print("\n" + "="*50)
+        print("⚠️  DEMO MODE ALERT: NO VALID SMTP CREDENTIALS FOUND")
+        print(f"📧 Destination: {email}")
+        print(f"🔑 Verification Code: {code}")
+        print("="*50 + "\n")
+        return jsonify({
+            "message": "code_sent_demo_mode",
+            "note": "Credentials not configured in .env. Code printed to terminal."
+        })
 
     try:
         msg = MIMEMultipart()
         msg['From'] = SMTP_EMAIL
         msg['To'] = email
         msg['Subject'] = "ZeroNa Password Reset Code"
-        msg.attach(MIMEText(f"Your verification code is: {code}", 'plain'))
+        
+        body = f"Hello,\n\nYour password reset verification code for ZeroNa Security is: {code}\n\nThis code will expire in 10 minutes.\n\nRegards,\nZeroNa Team"
+        msg.attach(MIMEText(body, 'plain'))
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.set_debuglevel(0)
         server.starttls()
         server.login(SMTP_EMAIL, SMTP_PASSWORD)
         server.send_message(msg)
         server.quit()
         return jsonify({"message": "code_sent"})
     except Exception as e:
-        print("Email error:", e)
-        return jsonify({"error": "failed_to_send_email"}), 500
+        print(f"❌ SMTP Error: {e}")
+        return jsonify({"error": "failed_to_send_email", "details": str(e)}), 500
 
 @app.route('/api/auth/verify-code', methods=['POST'])
 def verify_code():
