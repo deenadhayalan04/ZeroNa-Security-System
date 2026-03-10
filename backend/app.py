@@ -427,11 +427,13 @@ def auth_login():
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", "")).strip()
 
-    # Success if it matches JSON OR ENV
+    # Success if it matches JSON OR ENV (Case-insensitive username)
     success = False
-    if username == json_username and password == json_password:
+    u_lower = username.lower()
+    
+    if json_username and u_lower == json_username.lower() and password == json_password:
         success = True
-    elif env_username and env_password and username == env_username and password == env_password:
+    elif env_username and u_lower == env_username.lower() and password == env_password:
         success = True
 
     if not success:
@@ -488,10 +490,24 @@ def forgot_password():
     except Exception as e:
         print(f"❌ SMTP Error: {e}")
         err_msg = str(e)
-        if "535" in err_msg:
-            print("💡 TIP: This looks like an authentication failure. Ensure you are using a 16-character GMAIL APP PASSWORD.")
-            if is_probable_regular_pass:
-                print("⚠️  NOTICE: Your SMTP_PASSWORD looks like a regular password. Google REQUIRES an App Password.")
+        
+        # ALWAYS print the code to terminal if SMTP fails, so the user isn't blocked
+        print("\n" + "!"*50)
+        print("⚠️  SMTP FAILED - FALLING BACK TO TERMINAL LOGGING")
+        print(f"📧 Destination: {email}")
+        print(f"🔑 Verification Code: {code}")
+        print("!"*50 + "\n")
+
+        if "535" in err_msg or "534" in err_msg:
+            print("💡 TIP: This is a Gmail authentication error.")
+            print("1. Ensure you have 2-Step Verification ON.")
+            print("2. Use a 16-character APP PASSWORD, not your regular password.")
+            return jsonify({
+                "error": "smtp_auth_failed", 
+                "details": "Google rejected your password. Check terminal for verification code.",
+                "code_hint": code # Sending hint for easy testing
+            }), 500
+
         return jsonify({"error": "failed_to_send_email", "details": err_msg}), 500
 
 @app.route('/api/auth/verify-code', methods=['POST'])

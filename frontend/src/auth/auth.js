@@ -19,12 +19,13 @@ export async function loginWithCredentials(username, password) {
     const res = await http.post('/auth/login', { username, password })
     const token = res.data?.token
     const user = res.data?.user?.username || username
-    if (!token) return { ok: false, message: 'Login failed.' }
+    if (!token) return { ok: false, message: 'Login failed: No token received.' }
     setAuthToken(token)
     localStorage.setItem(USER_KEY, user)
     return { ok: true }
   } catch (e) {
-    return { ok: false, message: 'Incorrect username or password.' }
+    const msg = e.response?.data?.error || e.message || 'Incorrect username or password.'
+    return { ok: false, message: msg }
   }
 }
 
@@ -33,7 +34,9 @@ export async function forgotPassword(email) {
     const res = await http.post('/auth/forgot-password', { email })
     return { ok: true, message: res.data.message }
   } catch (err) {
-    return { ok: false, message: err.response?.data?.error || 'Failed to request reset.' }
+    const error = err.response?.data?.error || 'failed_to_request_reset'
+    const details = err.response?.data?.details || ''
+    return { ok: false, message: details ? `${error}: ${details}` : error }
   }
 }
 
