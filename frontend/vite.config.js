@@ -33,4 +33,17 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Increase the chunk size limit to 2000kb (default is 500kb)
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        // Splitting common libraries into separate chunks helps with build size and caching
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom', 'axios', 'framer-motion'],
+          icons: ['lucide-react'],
+        },
+      },
+    },
+  },
 })
