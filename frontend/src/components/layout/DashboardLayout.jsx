@@ -12,6 +12,8 @@ import {
 import { cn } from '../../lib/cn'
 import { Badge } from '../ui/Badge'
 import { logout } from '../../auth/auth'
+import { useEffect, useState } from 'react'
+import { getAssessment } from '../../api/assessment'
 
 const nav = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, section: 'Assessment' },
@@ -25,6 +27,17 @@ export function DashboardLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const current = nav.find((n) => n.to === location.pathname)?.label ?? 'Overview'
+  const [assessment, setAssessment] = useState(null)
+
+  useEffect(() => {
+    getAssessment()
+      .then(setAssessment)
+      .catch(() => setAssessment(null))
+  }, [location.pathname])
+
+  const score = assessment?.overall_score ?? 68
+  const riskLabel = score >= 80 ? 'Low' : score >= 60 ? 'Moderate' : 'High'
+  const riskVariant = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger'
 
   return (
     <div className="min-h-screen">
@@ -102,11 +115,11 @@ export function DashboardLayout() {
                 <p className="text-[11px] font-semibold text-muted-foreground">READINESS SCORE</p>
                 <div className="mt-2 flex items-end justify-between">
                   <div>
-                    <p className="text-2xl font-bold font-mono text-foreground">68</p>
-                    <p className="text-[11px] text-muted-foreground">Moderate risk posture</p>
+                    <p className="text-2xl font-bold font-mono text-foreground">{score}</p>
+                    <p className="text-[11px] text-muted-foreground">{riskLabel} risk posture</p>
                   </div>
-                  <Badge variant="warning" className="uppercase">
-                    Moderate
+                  <Badge variant={riskVariant} className="uppercase">
+                    {riskLabel}
                   </Badge>
                 </div>
               </div>
@@ -122,13 +135,13 @@ export function DashboardLayout() {
                   <span className="text-xs text-muted-foreground">Tenant</span>
                   <span className="text-xs font-semibold text-foreground">Acme Corp</span>
                 </div>
-                <Badge variant="warning" className="uppercase">
-                  Moderate risk
+                <Badge variant={riskVariant} className="uppercase">
+                  {riskLabel} Risk
                 </Badge>
               </div>
               <div className="flex items-center gap-3">
                 <p className="text-xs text-muted-foreground">
-                  Last assessed: <span className="text-foreground font-semibold">Mar 02, 2026</span>
+                  Last updated: <span className="text-foreground font-semibold">{assessment?.generated_at ? new Date(assessment.generated_at).toLocaleDateString() : 'Mar 02, 2026'}</span>
                 </p>
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-secondary/30 px-3 text-xs text-foreground hover:bg-secondary/40"
@@ -142,7 +155,7 @@ export function DashboardLayout() {
                 </button>
               </div>
             </div>
-            <div className="mt-2">
+            <div className="mt-2 text-balance leading-snug">
               <p className="text-sm font-semibold text-foreground">{current}</p>
             </div>
           </header>

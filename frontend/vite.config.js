@@ -40,7 +40,7 @@ export default defineConfig({
       output: {
         // Splitting common libraries into separate chunks helps with build size and caching
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom', 'axios', 'framer-motion'],
+          vendor: ['react', 'react-dom', 'react-router-dom', 'axios'],
           icons: ['lucide-react'],
         },
       },

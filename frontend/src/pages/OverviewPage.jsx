@@ -4,17 +4,20 @@ import { Progress } from '../components/ui/Progress'
 import { cn } from '../lib/cn'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AlertTriangle, CheckCircle2, ChevronRight, ClipboardList, FileText, ShieldAlert } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { getAssessment } from '../api/assessment'
+import { Link } from 'react-router-dom'
 
-const categories = [
-  { name: 'Backup & Recovery', score: 82, label: 'Strong', variant: 'success', findings: 2, updated: '2 days ago' },
-  { name: 'Endpoint Protection', score: 71, label: 'Moderate', variant: 'warning', findings: 5, updated: '1 day ago' },
-  { name: 'Email Security', score: 58, label: 'Weak', variant: 'danger', findings: 8, updated: '3 days ago' },
-  { name: 'Network Segmentation', score: 64, label: 'Moderate', variant: 'warning', findings: 6, updated: '1 day ago' },
-  { name: 'Incident Response', score: 45, label: 'Critical', variant: 'danger', findings: 12, updated: '5 days ago' },
-  { name: 'Employee Training', score: 72, label: 'Moderate', variant: 'warning', findings: 4, updated: '1 week ago' },
-  { name: 'Patch Management', score: 79, label: 'Strong', variant: 'success', findings: 3, updated: '12 hours ago' },
-  { name: 'Access Control', score: 67, label: 'Moderate', variant: 'warning', findings: 7, updated: '2 days ago' },
-]
+const domainMeta = {
+  backup: { label: 'Strong', variant: 'success' },
+  endpoint: { label: 'Moderate', variant: 'warning' },
+  network: { label: 'Moderate', variant: 'warning' },
+  training: { label: 'Moderate', variant: 'warning' },
+  access: { label: 'Moderate', variant: 'warning' },
+  patching: { label: 'Strong', variant: 'success' },
+  ir: { label: 'Critical', variant: 'danger' },
+  email: { label: 'Weak', variant: 'danger' }
+}
 
 const trend = [
   { month: 'Sep', score: 38 },
@@ -27,11 +30,17 @@ const trend = [
 ]
 
 function ScoreRing({ value = 68 }) {
+  const score = value || 0
   const size = 220
   const stroke = 16
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
-  const dash = (value / 100) * c
+  const dash = (score / 100) * c
+
+  const label = score >= 80 ? 'Strong Readiness' : score >= 60 ? 'Moderate Readiness' : 'Critical Readiness'
+  const colorClass = score >= 80 ? 'stroke-success' : score >= 60 ? 'stroke-warning' : 'stroke-danger'
+  const dotColorClass = score >= 80 ? 'bg-success' : score >= 60 ? 'bg-warning' : 'bg-danger'
+  const textColorClass = score >= 80 ? 'text-success' : score >= 60 ? 'text-warning' : 'text-danger'
 
   return (
     <div className="relative mx-auto grid place-items-center" style={{ width: size, height: size }}>
@@ -51,17 +60,17 @@ function ScoreRing({ value = 68 }) {
           strokeWidth={stroke}
           strokeLinecap="round"
           fill="transparent"
-          className="stroke-warning drop-shadow-[0_0_18px_rgba(245,158,11,0.22)]"
+          className={cn(colorClass, "drop-shadow-[0_0_18px_rgba(245,158,11,0.22)]")}
           strokeDasharray={`${dash} ${c - dash}`}
         />
       </svg>
-      <div className="absolute text-center">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Overall readiness score</p>
-        <p className="mt-2 font-mono text-5xl font-bold text-foreground">{value}</p>
+      <div className="absolute text-center px-4">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground leading-tight">Overall readiness score</p>
+        <p className="mt-2 font-mono text-5xl font-bold text-foreground">{score}</p>
         <p className="text-xs text-muted-foreground">out of 100</p>
-        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-warning">
-          <span className="h-2 w-2 rounded-full bg-warning" />
-          <span className="font-semibold">Moderate Readiness</span>
+        <div className={cn("mt-3 flex items-center justify-center gap-2 text-xs font-semibold", textColorClass)}>
+          <span className={cn("h-2 w-2 rounded-full", dotColorClass)} />
+          <span>{label}</span>
         </div>
       </div>
     </div>
@@ -69,13 +78,47 @@ function ScoreRing({ value = 68 }) {
 }
 
 export function OverviewPage() {
+  const [assessment, setAssessment] = useState(null)
+
+  useEffect(() => {
+    getAssessment()
+      .then(setAssessment)
+      .catch(() => setAssessment(null))
+  }, [])
+
+  const categories = useMemo(() => {
+    if (!assessment?.domains) return []
+    return assessment.domains.map(d => ({
+      ...d,
+      label: domainMeta[d.id]?.label || 'Unrated',
+      variant: domainMeta[d.id]?.variant || 'outline',
+      findings: d.controls.filter(c => c.status !== 'pass').length,
+      updated: 'recently'
+    }))
+  }, [assessment])
+
+  const riskStats = useMemo(() => {
+    if (!categories.length) return { critical: 0, findings: 0, completed: 0 }
+    let critical = 0, findings = 0, completed = 0
+    categories.forEach(c => {
+      c.controls.forEach(ctrl => {
+        if (ctrl.status === 'fail') critical++
+        if (ctrl.status !== 'pass') findings++
+        else completed++
+      })
+    })
+    return { critical, findings, completed }
+  }, [categories])
+
+  const score = assessment?.overall_score ?? 68
+
   return (
     <div className="flex flex-col gap-5">
       <div className="glass rounded-2xl px-5 py-5">
-        <h2 className="text-xl font-bold tracking-tight text-foreground text-balance">
+        <h2 className="text-xl font-bold tracking-tight text-foreground text-balance leading-tight">
           Ransomware Readiness Overview
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground leading-snug">
           Evaluate and improve your organization&apos;s preparedness against ransomware threats
         </p>
       </div>
@@ -86,9 +129,10 @@ export function OverviewPage() {
             <CardTitle>Readiness Score</CardTitle>
           </CardHeader>
           <CardContent className="pt-2">
-            <ScoreRing value={68} />
-            <p className="mt-4 text-xs text-muted-foreground">
-              Your organization has moderate ransomware preparedness. Key areas require immediate attention.
+            <ScoreRing value={score} />
+            <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+              Your organization has {score >= 80 ? 'strong' : score >= 60 ? 'moderate' : 'critical'} ransomware preparedness.
+              {score < 80 ? ' Key areas require immediate attention.' : ' Continue monitoring and improving controls.'}
             </p>
           </CardContent>
         </Card>
@@ -148,71 +192,62 @@ export function OverviewPage() {
                 <CardTitle>Risk Summary</CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">Key metrics from your latest assessment</p>
               </div>
-              <Badge variant="outline" className="text-[10px]">
-                v0 block
-              </Badge>
             </div>
           </CardHeader>
           <CardContent className="pt-2">
             <div className="space-y-3">
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3 hover:bg-secondary/30"
+              <Link
+                to="/risks"
+                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3 hover:bg-secondary/30 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div className="grid h-10 w-10 place-items-center rounded-2xl bg-danger/10 border border-danger/20">
                     <AlertTriangle className="h-5 w-5 text-danger" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">2 Critical Actions</p>
-                    <p className="text-xs text-muted-foreground">Require immediate remediation</p>
+                    <p className="text-sm font-semibold">{riskStats.critical} Critical Actions</p>
+                    <p className="text-xs text-muted-foreground leading-tight">Require immediate remediation</p>
                   </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </a>
+              </Link>
 
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3 hover:bg-secondary/30"
+              <Link
+                to="/assessment"
+                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3 hover:bg-secondary/30 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div className="grid h-10 w-10 place-items-center rounded-2xl bg-warning/10 border border-warning/20">
                     <ClipboardList className="h-5 w-5 text-warning" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">5 Open Findings</p>
-                    <p className="text-xs text-muted-foreground">Pending remediation actions</p>
+                    <p className="text-sm font-semibold">{riskStats.findings} Open Findings</p>
+                    <p className="text-xs text-muted-foreground leading-tight">Pending remediation actions</p>
                   </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </a>
+              </Link>
 
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3 hover:bg-secondary/30"
+              <div
+                className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <div className="grid h-10 w-10 place-items-center rounded-2xl bg-success/10 border border-success/20">
                     <CheckCircle2 className="h-5 w-5 text-success" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">2 Completed</p>
-                    <p className="text-xs text-muted-foreground">Successfully remediated this quarter</p>
+                    <p className="text-sm font-semibold">{riskStats.completed} Completed</p>
+                    <p className="text-xs text-muted-foreground leading-tight">Successfully remediated</p>
                   </div>
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </a>
+              </div>
             </div>
 
             <div className="mt-4 rounded-2xl border border-border/70 bg-secondary/20 p-4">
-              <p className="text-[11px] font-semibold tracking-wide text-muted-foreground">KEY INSIGHT</p>
-              <p className="mt-2 text-sm text-foreground">
-                <span className="font-semibold">Incident Response</span> is your weakest area at{' '}
-                <span className="font-semibold text-danger">45%</span>. Developing a ransomware-specific IR playbook could
-                improve your overall score by up to 12 points.
+              <p className="text-[11px] font-semibold tracking-wide text-muted-foreground leading-tight">KEY INSIGHT</p>
+              <p className="mt-2 text-sm text-foreground leading-snug">
+                Your weakest area is currently <span className="font-bold text-danger">{(categories.find(c => c.score < 50) || categories.sort((a, b) => a.score - b.score)[0])?.name || 'N/A'}</span>.
+                Addressing these findings could improve your overall score significantly.
               </p>
             </div>
           </CardContent>
@@ -223,10 +258,10 @@ export function OverviewPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-foreground">Assessment Categories</h3>
-            <p className="mt-1 text-xs text-muted-foreground">8 domains evaluated against industry frameworks</p>
+            <p className="mt-1 text-xs text-muted-foreground">{categories.length} domains evaluated against industry frameworks</p>
           </div>
           <Badge variant="outline" className="text-[10px]">
-            8 domains
+            {categories.length} domains
           </Badge>
         </div>
 
@@ -241,7 +276,7 @@ export function OverviewPage() {
                       {c.label}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
+                  <p className="mt-1 text-[11px] text-muted-foreground leading-tight">
                     {c.findings} findings <span className="mx-1">•</span> updated {c.updated}
                   </p>
                 </div>
@@ -269,23 +304,23 @@ export function OverviewPage() {
           <div className="rounded-2xl border border-border/70 bg-secondary/20 p-4">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-danger" />
-              <p className="text-sm font-semibold">2 Critical</p>
+              <p className="text-sm font-semibold">{riskStats.critical} Critical</p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">High-impact issues to fix now</p>
+            <p className="mt-1 text-xs text-muted-foreground leading-tight">High-impact issues to fix now</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-secondary/20 p-4">
             <div className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-warning" />
-              <p className="text-sm font-semibold">18 Findings</p>
+              <p className="text-sm font-semibold">{riskStats.findings} Findings</p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">Open remediation actions</p>
+            <p className="mt-1 text-xs text-muted-foreground leading-tight">Open remediation actions</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-secondary/20 p-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-success" />
-              <p className="text-sm font-semibold">2 Completed</p>
+              <p className="text-sm font-semibold">{riskStats.completed} Completed</p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">Remediated this quarter</p>
+            <p className="mt-1 text-xs text-muted-foreground leading-tight">Successfully remediated</p>
           </div>
         </div>
       </div>
