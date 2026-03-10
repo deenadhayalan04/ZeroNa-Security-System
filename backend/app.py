@@ -412,17 +412,30 @@ def download_report_csv():
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     """
-    Secure login: verifies credentials using credentials.json.
+    Secure login: verifies credentials using credentials.json OR .env as fallback.
     """
+    # Try credentials.json first
     creds = get_credentials()
-    auth_username = creds["username"]
-    auth_password = creds["password"]
+    json_username = creds.get("username")
+    json_password = creds.get("password")
+
+    # Try .env as fallback
+    env_username = os.environ.get("ZERONA_USERNAME")
+    env_password = os.environ.get("ZERONA_PASSWORD")
 
     data = request.get_json(silent=True) or {}
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", "")).strip()
 
-    if username != auth_username or password != auth_password:
+    # Success if it matches JSON OR ENV
+    success = False
+    if username == json_username and password == json_password:
+        success = True
+    elif env_username and env_password and username == env_username and password == env_password:
+        success = True
+
+    if not success:
+        print(f"FAILED LOGIN ATTEMPT: '{username}'")
         return jsonify({"error": "invalid_credentials"}), 401
 
     token = _issue_token(username)
@@ -440,6 +453,10 @@ def forgot_password():
         "code": code,
         "expires": time.time() + 600 # 10 minutes
     }
+
+    # Detect if it looks like a regular password instead of an App Password
+    # App passwords are 16 characters, usually all lowercase, no special chars, or 4 blocks of 4.
+    is_probable_regular_pass = len(SMTP_PASSWORD or "") < 16 or any(c.isupper() for c in (SMTP_PASSWORD or ""))
 
     if not SMTP_EMAIL or not SMTP_PASSWORD or SMTP_EMAIL == "your-email@gmail.com":
         print("\n" + "="*50)
@@ -470,7 +487,12 @@ def forgot_password():
         return jsonify({"message": "code_sent"})
     except Exception as e:
         print(f"❌ SMTP Error: {e}")
-        return jsonify({"error": "failed_to_send_email", "details": str(e)}), 500
+        err_msg = str(e)
+        if "535" in err_msg:
+            print("💡 TIP: This looks like an authentication failure. Ensure you are using a 16-character GMAIL APP PASSWORD.")
+            if is_probable_regular_pass:
+                print("⚠️  NOTICE: Your SMTP_PASSWORD looks like a regular password. Google REQUIRES an App Password.")
+        return jsonify({"error": "failed_to_send_email", "details": err_msg}), 500
 
 @app.route('/api/auth/verify-code', methods=['POST'])
 def verify_code():
